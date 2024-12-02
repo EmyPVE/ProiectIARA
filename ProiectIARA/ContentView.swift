@@ -8,22 +8,29 @@
 import SwiftUI
 import RealityKit
 import ARKit
+import simd
 
-class CubeSettings: ObservableObject {
-    @Published var color: UIColor = .white
+class GameSettings: ObservableObject {
+    @Published var isGameStarted: Bool = false
+}
+
+extension simd_float4x4 {
+    var position: SIMD3<Float> {
+        return SIMD3(self.columns.3.x, self.columns.3.y, self.columns.3.z)
+    }
 }
 
 struct ContentView: View {
-    @StateObject private var cubeSettings = CubeSettings()
+    var isTabletopMode: Bool
 
     var body: some View {
-        ARViewContainer(cubeSettings: cubeSettings)
+        ARViewContainer(isTabletopMode: isTabletopMode)
             .edgesIgnoringSafeArea(.all)
     }
 }
 
 struct ARViewContainer: UIViewRepresentable {
-    @ObservedObject var cubeSettings: CubeSettings
+    var isTabletopMode: Bool
     let arView = ARView(frame: .zero)
 
     func makeUIView(context: Context) -> ARView {
@@ -31,125 +38,138 @@ struct ARViewContainer: UIViewRepresentable {
         let config = ARWorldTrackingConfiguration()
         config.planeDetection = [.horizontal]
         arView.session.run(config)
-
-        // Configure tap gesture recognizer
-        let tapGesture = UITapGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.handleTap))
-        arView.addGestureRecognizer(tapGesture)
-
-        // Configure pan gesture recognizer
-        let panGesture = UIPanGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.handlePan))
-        arView.addGestureRecognizer(panGesture)
         
-        // Create a cube model
-        let cube = createCube()
-        let anchor = AnchorEntity(plane: .horizontal)
-        anchor.addChild(cube)
-        arView.scene.addAnchor(anchor)
+        // Add gesture recognizer for swipe
+        let swipeGesture = UIPanGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.handleSwipe))
+        arView.addGestureRecognizer(swipeGesture)
 
-        // Set the model entity in the coordinator
-        context.coordinator.modelEntity = cube
-        
+        // Set up the scene based on mode
+        context.coordinator.setupScene(in: arView, isTabletopMode: isTabletopMode)
+
         return arView
     }
 
-    func updateUIView(_ uiView: ARView, context: Context) {
-        // No additional updates required here
-    }
-    
-    func createCube() -> ModelEntity {
-        let mesh = MeshResource.generateBox(size: 0.1, cornerRadius: 0.005)
-        let material = SimpleMaterial(color: cubeSettings.color, roughness: 0.15, isMetallic: false)
-        let model = ModelEntity(mesh: mesh, materials: [material])
-        model.position = [0, 0.05, 0]  // Set the initial position of the cube
-        
-        // Enable tap interactions
-        model.generateCollisionShapes(recursive: true)
-        
-        return model
-    }
+    func updateUIView(_ uiView: ARView, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(self)
+        Coordinator()
     }
 
     class Coordinator: NSObject {
-        var parent: ARViewContainer
-        var modelEntity: ModelEntity?
-        private let fixedHeight: Float = 0.05  // Înălțimea fixă la care vrem să păstrăm cubul
-        
-        // Variabile pentru a salva poziția inițială a cubului și a gestului
-        private var initialPosition: SIMD3<Float>?
-        private var initialGesturePoint: CGPoint?
-
-        init(_ parent: ARViewContainer) {
-            self.parent = parent
-        }
-
-        @objc func handleTap(_ gesture: UITapGestureRecognizer) {
-            guard let view = gesture.view as? ARView, let model = modelEntity else { return }
-            
-            // Detect where the user tapped
-            let tapLocation = gesture.location(in: view)
-            if let tappedEntity = view.entity(at: tapLocation) as? ModelEntity, tappedEntity == model {
-                // Generate a random color
-                let randomColor = UIColor(
-                    red: CGFloat.random(in: 0...1),
-                    green: CGFloat.random(in: 0...1),
-                    blue: CGFloat.random(in: 0...1),
-                    alpha: 1.0
-                )
-                
-                // Create a new material with the random color
-                let newMaterial = SimpleMaterial(color: randomColor, roughness: 0.15, isMetallic: false)
-
-                // Update the model's materials
-                model.model?.materials = [newMaterial]
+        override init() {
+                super.init()
             }
+        
+        func setupScene(in arView: ARView, isTabletopMode: Bool) {
+            // Încărcare skybox
+            do {
+                let skyboxResource = try EnvironmentResource.load(named: "light.skybox")
+                arView.environment.lighting.resource = skyboxResource
+            } catch {
+                print("Eroare: Nu s-a putut încărca skybox-ul din light.skybox")
+            }
+            
+            // Eliminăm reflexiile suplimentare prin reducerea intensității luminii implicite
+            arView.environment.lighting.intensityExponent = 0.0
+
+            // Ancorare pe planul orizontal detectat
+            let planeAnchor = AnchorEntity(plane: .horizontal)
+            planeAnchor.position.z -= 0.125
+            arView.scene.addAnchor(planeAnchor)
+            
+            // Colizor invizibil
+            let invisibleCollider = ModelEntity(mesh: .generatePlane(width: 1.0, depth: 1.0))
+            let material = semiTransparentShader(0.0) // Material invizibil
+            invisibleCollider.model?.materials = [material]
+            
+            invisibleCollider.physicsBody = PhysicsBodyComponent(
+                massProperties: .default,
+                material: .default,
+                mode: .static
+            )
+            invisibleCollider.collision = CollisionComponent(
+                shapes: [.generateBox(size: [1.0, 0.00001, 1.0])]
+            )
+            planeAnchor.addChild(invisibleCollider)
+            
+            func semiTransparentShader(_ value: Float) -> RealityFoundation.Material {
+                var material = PhysicallyBasedMaterial()
+                material.baseColor = .init(tint: .clear) // Fără culoare vizibilă
+                material.blending = .transparent(opacity: .init(floatLiteral: value)) // Setăm transparența
+                return material
+            }
+
+
+            let cubeSize: Float = isTabletopMode ? 0.05 : 0.1
+            let spacing: Float = cubeSize * 0.4 // Distanță între cuburi
+            let ballRadius: Float = isTabletopMode ? 0.025 : 0.07
+            let ballPosition: SIMD3<Float> = isTabletopMode ? [0, 0.1, 0.2] : [0, cubeSize, -0.5]
+
+            // Poziții pentru piramida de cuburi
+            let pyramidPositions: [[SIMD3<Float>]] = [
+                [SIMD3(-cubeSize - spacing, cubeSize / 2, 0), SIMD3(0, cubeSize / 2, 0), SIMD3(cubeSize + spacing, cubeSize / 2, 0)], // Bază
+                [SIMD3(-cubeSize / 2 - spacing / 2, cubeSize + cubeSize / 2, 0), SIMD3(cubeSize / 2 + spacing / 2, cubeSize + cubeSize / 2, 0)], // Mijloc
+                [SIMD3(0, 2 * cubeSize + cubeSize / 2, 0)] // Vârf
+            ]
+
+            // Creăm cuburile
+            for row in pyramidPositions {
+                for position in row {
+                    let cube = ModelEntity(mesh: .generateBox(size: cubeSize), materials: [SimpleMaterial(color: .blue, isMetallic: false)])
+                    cube.physicsBody = PhysicsBodyComponent(massProperties: .default, material: .default, mode: .static)
+                    cube.collision = CollisionComponent(shapes: [.generateBox(size: [cubeSize, cubeSize, cubeSize])])
+                    cube.position = position
+                    planeAnchor.addChild(cube)
+                }
+            }
+
+            // Adăugăm mingea
+            let ball = ModelEntity(mesh: .generateSphere(radius: ballRadius), materials: [SimpleMaterial(color: .red, isMetallic: true)])
+            ball.position = ballPosition
+            ball.physicsBody = PhysicsBodyComponent(massProperties: .default, material: .default, mode: .kinematic)
+            ball.collision = CollisionComponent(shapes: [.generateSphere(radius: ballRadius)])
+            ball.name = "ball"
+
+            let ballAnchor = AnchorEntity(plane: .horizontal)
+            ballAnchor.addChild(ball)
+            arView.scene.addAnchor(ballAnchor)
         }
 
-        @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
-            guard let view = gesture.view as? ARView, let model = modelEntity else { return }
 
-            let tapLocation = gesture.location(in: view)
 
-            switch gesture.state {
-            case .began:
-                // Salvăm poziția inițială a cubului și punctul inițial al gestului
-                initialPosition = model.position
-                initialGesturePoint = tapLocation
-            case .changed:
-                guard let initialPosition = initialPosition, let initialGesturePoint = initialGesturePoint else { return }
-                
-                // Calculează deplasarea
-                let translation = gesture.translation(in: view)
-                
-                // Obținem transformarea camerei
-                let cameraTransform = view.cameraTransform
-                
-                // Calculăm direcția de mișcare
-                let forward = SIMD3<Float>(cameraTransform.rotation.act(SIMD3<Float>(0, 0, -1))) // înainte
-                let right = SIMD3<Float>(cameraTransform.rotation.act(SIMD3<Float>(1, 0, 0))) // dreapta
+        func createCube(size: Float) -> ModelEntity {
+            let cube = ModelEntity(mesh: .generateBox(size: size), materials: [SimpleMaterial(color: .blue, isMetallic: false)])
+            cube.physicsBody = PhysicsBodyComponent(massProperties: .default,
+                                                    material: .default,
+                                                    mode: .static)
+            cube.collision = CollisionComponent(shapes: [.generateBox(size: [size, size, size])])
+            return cube
+        }
 
-                // Ajustează factorul de scalare pentru a schimba viteza de mișcare
-                let scaleFactor: Float = 0.001  // Ajustare a vitezei mișcării
-                
-                // Actualizăm poziția cubului
-                model.position = initialPosition + (forward * -Float(translation.y) * scaleFactor) + (right * Float(translation.x) * scaleFactor)
-                
-                // Păstrează înălțimea fixă
-                model.position.y = fixedHeight
-            case .ended, .cancelled:
-                // Resetăm variabilele
-                initialPosition = nil
-                initialGesturePoint = nil
-            default:
-                break
+        func createBall(radius: Float) -> ModelEntity {
+            let ball = ModelEntity(mesh: .generateSphere(radius: radius), materials: [SimpleMaterial(color: .red, isMetallic: true)])
+            ball.collision = CollisionComponent(shapes: [.generateSphere(radius: radius)])
+            ball.name = "ball" // Give the ball a name for identification
+            return ball
+        }
+
+        @objc func handleSwipe(_ gesture: UIPanGestureRecognizer) {
+            guard let arView = gesture.view as? ARView else { return }
+            
+            // Găsim mingea
+            guard let ball = arView.scene.findEntity(named: "ball") as? ModelEntity else { return }
+            
+            if gesture.state == .ended {
+                // Traducem mișcarea swipe-ului în forță aplicată mingii
+                let translation = gesture.translation(in: arView)
+                let swipeDirection = SIMD3<Float>(
+                    Float(-translation.x) * 0.001, // Direcția X
+                    0,                            // Nu aplicăm forță pe Y
+                    Float(-translation.y) * 0.001 // Direcția Z
+                )
+                ball.physicsBody?.mode = .dynamic
+                ball.applyLinearImpulse(simd_normalize(swipeDirection) * 0.02, relativeTo: nil)
             }
         }
     }
 }
-
-#Preview {
-    ContentView()
-}
-
