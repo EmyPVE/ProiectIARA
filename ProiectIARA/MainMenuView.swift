@@ -41,10 +41,21 @@ struct MainMenuView: View {
 
                 GeometryReader { geometry in
                     VStack {
-                        Text("Tower Tumble 🎯")
+                        HStack{
+                        Text("Tower")
                             .font(.largeTitle)
                             .foregroundColor(.white)
                             .padding(.bottom, 50)
+                            Image(systemName: "scope")
+                                .symbolEffect(.bounce.down.byLayer, options: .repeat(.periodic(delay: 0.5)))
+                            .font(.largeTitle)
+                            .foregroundColor(.red)
+                            .padding(.bottom, 50)
+                            Text("Tumble")
+                                .font(.largeTitle)
+                                .foregroundColor(.white)
+                                .padding(.bottom, 50)
+                            }
                         Button(action: {
                             feedbackGenerator.impactOccurred()
 
@@ -61,12 +72,13 @@ struct MainMenuView: View {
                                 }
                             }
                         }) {
-                            Text("Play")
+                            Label("Play", systemImage: "play.fill")
+                                .symbolEffect(.wiggle.right.byLayer, options: .repeating)
+                                .buttonStyle(.borderedProminent)
+                                .padding()
                                 .font(.title)
                                 .foregroundColor(.white)
-                                .padding()
-                                .background(Color.blue)
-                                .cornerRadius(10)
+                                .background(.red, in: Capsule())
                         }
                     }
                     .frame(width: geometry.size.width, height: geometry.size.height)
