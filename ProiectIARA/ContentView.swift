@@ -242,7 +242,7 @@ struct ARViewContainer: UIViewRepresentable {
         let config = ARWorldTrackingConfiguration()
         config.planeDetection = [.horizontal]
         arView.session.run(config)
-
+        
         // Add gestures
         let tapGesture = UITapGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.handleTap))
         arView.addGestureRecognizer(tapGesture)
@@ -280,6 +280,7 @@ struct ARViewContainer: UIViewRepresentable {
 
         init(gameSettings: GameSettings) {
             self.gameSettings = gameSettings
+            _ = AudioManager.shared
         }
 
         func setupScene(in arView: ARView) {
@@ -335,7 +336,7 @@ struct ARViewContainer: UIViewRepresentable {
         func update(event: SceneEvents.Update) {
             var cubesToRemove: [ModelEntity] = []
             for cube in cubes {
-                if cube.position(relativeTo: nil).y < -0.5 { // Updated threshold to -0.5 to remove cubes much lower
+                if cube.position(relativeTo: nil).y < -1.3 { // Updated threshold to -0.5 to remove cubes much lower
                     cubesToRemove.append(cube)
                 }
             }
@@ -495,7 +496,7 @@ struct ARViewContainer: UIViewRepresentable {
                             }
                         } else {
                             // Delay the game over result to allow for final cube falls
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                                 self.gameSettings.isGameOver = true
                                 self.gameSettings.gameResult = self.gameSettings.score == 6
  ? "You won!" : "You lost!"
