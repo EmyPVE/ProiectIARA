@@ -7,26 +7,16 @@
 
 import SwiftUI
 import RealityKit
-import UIKit
-
-struct LazyView<Content: View>: View {
-    let build: () -> Content
-    init(_ build: @escaping () -> Content) {
-        self.build = build
-    }
-    var body: Content {
-        build()
-    }
-}
+import ARKit
 
 struct MainMenuView: View {
-    @ObservedObject var gameSettings: GameSettings
+    @EnvironmentObject var gameSettings: GameSettings
     @State private var isARReady: Bool = false
     @State private var isLoading: Bool = false
 
     private let backgroundColor = Color.black.opacity(0.7)
     private let feedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
-    private let blurRadius = UIScreen.main.bounds.width / 80 // Blur mai redus pentru performanță
+    private let blurRadius = UIScreen.main.bounds.width / 80 // Reduced blur for performance
 
     var body: some View {
         ZStack {
@@ -43,10 +33,10 @@ struct MainMenuView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black.opacity(0.5))
                 } else {
-                    ARViewContainer()
+                    // Blurred AR camera background
+                    BackgroundARViewContainer()
                         .blur(radius: blurRadius)
                         .edgesIgnoringSafeArea(.all)
-                        .environmentObject(gameSettings)
                 }
 
                 GeometryReader { geometry in
@@ -58,10 +48,10 @@ struct MainMenuView: View {
                         Button(action: {
                             feedbackGenerator.impactOccurred()
 
-                            // Începe preîncărcarea AR
+                            // Start preloading AR
                             isLoading = true
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                prepareARView()
+                                // Preload AR resources if necessary
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                     withAnimation(.easeInOut(duration: 1.0)) {
                                         isARReady = true
@@ -83,20 +73,28 @@ struct MainMenuView: View {
                     .background(backgroundColor)
                 }
             } else if isARReady {
-                ContentView(gameSettings: gameSettings)
+                // The AR game view
+                ContentView()
+                    .environmentObject(gameSettings)
             }
         }
     }
-
-    // Funcție pentru a pregăti ARView în mod sigur pe firul principal
-    func prepareARView() {
-        // Inițializează ARView pe firul principal pentru a-l preîncărca fără blocări semnificative
-        let _ = ARView(frame: .zero)
-    }
 }
 
-struct MainMenuView_Previews: PreviewProvider {
-    static var previews: some View {
-        MainMenuView(gameSettings: GameSettings())
+struct BackgroundARViewContainer: UIViewRepresentable {
+    func makeUIView(context: Context) -> ARView {
+        let arView = ARView(frame: .zero)
+
+        // Configure AR session for background
+        let config = ARWorldTrackingConfiguration()
+        config.planeDetection = []
+        config.environmentTexturing = .automatic
+        arView.session.run(config)
+
+        return arView
+    }
+
+    func updateUIView(_ uiView: ARView, context: Context) {
+        // No updates needed for now
     }
 }
