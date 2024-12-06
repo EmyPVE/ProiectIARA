@@ -1,7 +1,4 @@
 //  ContentView.swift
-//  ProiectIARA
-//
-//  Created by Emanuel Prelipcean on 21.10.2024.
 
 import SwiftUI
 import RealityKit
@@ -13,7 +10,7 @@ import UIKit
 class GameSettings: ObservableObject {
     @Published var isGameStarted: Bool = false
     @Published var towerAnchor: AnchorEntity? = nil
-    @Published var hasPlacedCubes: Bool = false
+    @Published var hasPlacedCans: Bool = false
     @Published var showWaitingMessage: Bool = true
     @Published var showTowerAlreadyPlacedMessage: Bool = false
     @Published var score: Int = 0
@@ -23,11 +20,10 @@ class GameSettings: ObservableObject {
     @Published var showInstructionCard: Bool = false
 
     func resetGame() {
-        // Reset variables and go back to MainMenuView
         self.isGameStarted = false
         self.towerAnchor?.removeFromParent()
         self.towerAnchor = nil
-        self.hasPlacedCubes = false
+        self.hasPlacedCans = false
         self.showWaitingMessage = true
         self.showTowerAlreadyPlacedMessage = false
         self.score = 0
@@ -37,17 +33,15 @@ class GameSettings: ObservableObject {
     }
 
     func startNewGame() {
-        // Reset variables but stay in ContentView
         self.towerAnchor?.removeFromParent()
         self.towerAnchor = nil
-        self.hasPlacedCubes = false
+        self.hasPlacedCans = false
         self.showWaitingMessage = true
         self.showTowerAlreadyPlacedMessage = false
         self.score = 0
         self.ballsRemaining = 3
         self.isGameOver = false
         self.gameResult = nil
-        // isGameStarted remains true
     }
 }
 
@@ -73,12 +67,10 @@ struct ContentView: View {
                 ARViewContainer()
                     .edgesIgnoringSafeArea(.all)
 
-                // Layer pentru instrucțiuni
                 if showInstructionsCard {
-                    Color.black.opacity(0.5) // Fundal semitransparent pentru focus pe card
+                    Color.black.opacity(0.5)
                         .ignoresSafeArea()
                         .onTapGesture {
-                            // Ascunde cardul la primul tap
                             withAnimation(.easeInOut(duration: 0.5)) {
                                 showInstructionsCard = false
                             }
@@ -86,8 +78,6 @@ struct ContentView: View {
 
                     VStack {
                         Spacer()
-
-                        // RoundedRectangle cu textul centralizat
                         VStack(spacing: 20) {
                             HStack{
                                 Image(systemName: "hand.tap")
@@ -124,7 +114,6 @@ struct ContentView: View {
                     .transition(.opacity)
                 }
 
-                // UI-ul principal
                 VStack {
                     HStack {
                         Button(action: {
@@ -157,7 +146,6 @@ struct ContentView: View {
 
                     Spacer()
 
-                    // Scorul și mingile rămase rămân în partea de jos
                     if !showInstructionsCard && !gameSettings.isGameOver {
                         VStack {
                             Text("Score: \(gameSettings.score)")
@@ -178,7 +166,6 @@ struct ContentView: View {
                     }
                 }
 
-                // Mesajul de final al jocului
                 if gameSettings.isGameOver {
                     VStack(spacing: 30) {
                         if let result = gameSettings.gameResult {
@@ -230,20 +217,16 @@ struct ContentView: View {
     }
 }
 
-
-
 struct ARViewContainer: UIViewRepresentable {
     @EnvironmentObject var gameSettings: GameSettings
 
     func makeUIView(context: Context) -> ARView {
         let arView = ARView(frame: .zero)
 
-        // Configure AR session
         let config = ARWorldTrackingConfiguration()
         config.planeDetection = [.horizontal]
         arView.session.run(config)
         
-        // Add gestures
         let tapGesture = UITapGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.handleTap))
         arView.addGestureRecognizer(tapGesture)
 
@@ -254,9 +237,7 @@ struct ARViewContainer: UIViewRepresentable {
         return arView
     }
 
-    func updateUIView(_ uiView: ARView, context: Context) {
-        // No updates needed for now
-    }
+    func updateUIView(_ uiView: ARView, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(gameSettings: gameSettings)
@@ -266,88 +247,110 @@ struct ARViewContainer: UIViewRepresentable {
         @ObservedObject var gameSettings: GameSettings
         var isSceneSetUp: Bool = false
         var arView: ARView?
-        var cubes: [ModelEntity] = [] {
-            didSet {
-                if cubes.count > 10 {
-                    let removedCubes = cubes.prefix(cubes.count - 10)
-                    removedCubes.forEach { $0.removeFromParent() }
-                    cubes = Array(cubes.suffix(10))
-                }
-            }
-        }
+        var cans: [ModelEntity] = []
         var subscriptions = Set<AnyCancellable>()
         var initialBallPosition: SIMD3<Float>?
+        
+        // Dimensiuni puțin mai mari: 0.001
+        let canHeight: Float = 0.001
+        let canDiameter: Float = 1.0
+
+        // *** Adăugat: Template pentru mingă ***
+        let ballTemplate: ModelEntity
 
         init(gameSettings: GameSettings) {
             self.gameSettings = gameSettings
+            
+            // *** Adăugat: Încărcare model mingă o singură dată ***
+            self.ballTemplate = try! Entity.loadModel(named: "tennisball")
+            let originalBounds = ballTemplate.visualBounds(relativeTo: nil)
+            let scaleY = canHeight / originalBounds.extents.y
+            let scaleX = canDiameter / originalBounds.extents.x
+            let scaleZ = canDiameter / originalBounds.extents.z
+            let scaleFactor = min(scaleX, scaleY, scaleZ)
+            ballTemplate.scale = [scaleFactor, scaleFactor, scaleFactor]
+
+            ballTemplate.physicsBody = PhysicsBodyComponent(
+                massProperties: .init(mass: 0.005),
+                material: .default,
+                mode: .kinematic
+            )
+            ballTemplate.collision = CollisionComponent(
+                shapes: [.generateSphere(radius: 0.001)]
+            )
+            ballTemplate.name = "ballTemplate" // Nume distinct pentru template
+            
+            super.init()
+            
             _ = AudioManager.shared
         }
 
         func setupScene(in arView: ARView) {
             self.arView = arView
-
             guard let towerAnchor = gameSettings.towerAnchor else { return }
 
-            // Place cubes on the anchor
-            placeCubes(on: towerAnchor)
+            placeCans(on: towerAnchor)
             arView.scene.addAnchor(towerAnchor)
             DispatchQueue.main.async {
-                self.gameSettings.hasPlacedCubes = true
+                self.gameSettings.hasPlacedCans = true
                 self.gameSettings.showWaitingMessage = false
             }
 
-            // Add visible ground plane under the cubes
-            let groundPlaneWidth: Float = 0.4 // Reduced width to make platform smaller
-            let groundPlaneDepth: Float = 0.4 // Reduced depth to make platform smaller
-            let groundPlaneHeight: Float = 0.02 // 2 cm thick
+            let groundPlaneWidth: Float = 0.4
+            let groundPlaneDepth: Float = 0.4
+            let groundPlaneHeight: Float = 0.02
+            let collisionHeight: Float = 0.005 // 5 mm
 
             let groundPlaneMesh = MeshResource.generateBox(size: [groundPlaneWidth, groundPlaneHeight, groundPlaneDepth])
             let groundPlaneMaterial = SimpleMaterial(color: .lightGray, isMetallic: false)
             let groundPlane = ModelEntity(mesh: groundPlaneMesh, materials: [groundPlaneMaterial])
 
-            groundPlane.physicsBody = PhysicsBodyComponent(
-                massProperties: .default,
-                material: .default,
-                mode: .static
-            )
-
-            // Collision component
+            groundPlane.physicsBody = PhysicsBodyComponent(massProperties: .default, material: .default, mode: .static)
+            
+            // *** Modificat: Ajustarea formei de coliziune a groundPlane ***
             groundPlane.collision = CollisionComponent(
-                shapes: [.generateBox(size: [groundPlaneWidth, groundPlaneHeight, groundPlaneDepth])]
+                shapes: [.generateBox(size: [groundPlaneWidth, collisionHeight, groundPlaneDepth])]
             )
 
-            // Position the plane so that its top is at y = 0
-            groundPlane.position = [0, groundPlaneHeight / 2, 0]
-
-            // Add the plane as a child of the tower anchor
+            // *** Modificat: Ajustarea poziției groundPlane pentru noua formă de coliziune ***
+            // Setează poziția corectă pe axa Y și elimină deplasarea pe axa Z
+            // Formula: groundPlane.position.y = firstLayerY - (collisionHeight / 2)
+            let firstLayerY = groundPlaneHeight + canHeight / 2 // 0.02 + 0.0005 = 0.0205
+            groundPlane.position = [0, firstLayerY - (collisionHeight / 2), 0] // [0, 0.0205 - 0.0025, 0] = [0, 0.018, 0]
             towerAnchor.addChild(groundPlane)
 
-            // Subscribe to scene updates
             arView.scene.subscribe(to: SceneEvents.Update.self) { event in
                 self.update(event: event)
             }.store(in: &self.subscriptions)
 
-            // Create the ball and place it in front of the camera
-            createAndPlaceBall(in: arView)
+            // După 0.5s plasăm mingea
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.createAndPlaceBall(in: arView)
+            }
+
+            // După 0.2s, toate conservele devin dinamice
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                for can in self.cans {
+                    can.physicsBody?.mode = .dynamic
+                }
+            }
 
             isSceneSetUp = true
         }
 
         func update(event: SceneEvents.Update) {
-            var cubesToRemove: [ModelEntity] = []
-            for cube in cubes {
-                if cube.position(relativeTo: nil).y < -1.3 { // Updated threshold to -0.5 to remove cubes much lower
-                    cubesToRemove.append(cube)
+            var cansToRemove: [ModelEntity] = []
+            for can in cans {
+                if can.position(relativeTo: nil).y < -1.5 {
+                    cansToRemove.append(can)
                 }
             }
-            for cube in cubesToRemove {
-                if let index = self.cubes.firstIndex(of: cube) {
-                    self.cubes.remove(at: index)
-                    cube.removeFromParent()
+            for can in cansToRemove {
+                if let index = self.cans.firstIndex(of: can) {
+                    self.cans.remove(at: index)
+                    can.removeFromParent()
                     DispatchQueue.main.async {
                         self.gameSettings.score += 1
-
-                        // Verifică dacă scorul a ajuns la 6 și setează jocul ca fiind câștigat
                         if self.gameSettings.score == 6 {
                             self.gameSettings.isGameOver = true
                             self.gameSettings.gameResult = "You won!"
@@ -357,60 +360,80 @@ struct ARViewContainer: UIViewRepresentable {
             }
         }
 
-
-        func placeCubes(on anchor: AnchorEntity) {
-            let cubeSize: Float = 0.1
+        func placeCans(on anchor: AnchorEntity) {
             let groundPlaneHeight: Float = 0.02
-            let firstLayerY = groundPlaneHeight + cubeSize / 2 // 0.02 + 0.05 = 0.07
-            let secondLayerY = firstLayerY + cubeSize // 0.07 + 0.1 = 0.17
-            let thirdLayerY = secondLayerY + cubeSize // 0.17 + 0.1 = 0.27
+            let spacing: Float = 0.1 // 10 cm spațiu vertical între straturi
 
-            for i in 0..<3 {
-                let cube = createCube(size: cubeSize)
-                cube.position = [Float(i) * 0.15 - 0.15, firstLayerY, 0] // Positioned cubes on top of the ground plane
-                anchor.addChild(cube)
+            // Calcularea pozițiilor pe axa Y
+            let firstLayerY = groundPlaneHeight + canHeight / 2
+            let secondLayerY = firstLayerY + canHeight + spacing
+            let thirdLayerY = secondLayerY + canHeight + spacing
+
+            // Poziții orizontale pentru fiecare strat (metri)
+            let positionsBottom: [Float] = [-0.1, 0.0, 0.1] // 10 cm la stânga, centru, 10 cm la dreapta
+            let positionsMid: [Float] = [-0.05, 0.05] // 5 cm la stânga și 5 cm la dreapta
+            let positionTop: Float = 0.0 // Centru
+
+            func createCan() -> ModelEntity {
+                let can = try! Entity.loadModel(named: "can")
+                let originalBounds = can.visualBounds(relativeTo: nil)
+                let scaleY = canHeight / originalBounds.extents.y
+                let scaleX = canDiameter / originalBounds.extents.x
+                let scaleZ = canDiameter / originalBounds.extents.z
+                let scaleFactor = min(scaleX, scaleY, scaleZ)
+                can.scale = [scaleFactor, scaleFactor, scaleFactor]
+
+                let bounding = can.visualBounds(relativeTo: can)
+                can.physicsBody = PhysicsBodyComponent(
+                    massProperties: .init(mass: 0.5),
+                    material: .default,
+                    mode: .kinematic
+                )
+                can.collision = CollisionComponent(
+                    shapes: [ShapeResource.generateBox(size: bounding.extents)]
+                )
+
+                return can
             }
-            for i in 0..<2 {
-                let cube = createCube(size: cubeSize)
-                cube.position = [Float(i) * 0.15 - 0.075, secondLayerY, 0] // Positioned cubes on top of the ground plane
-                anchor.addChild(cube)
+
+            // 3 conserve la baza
+            for i in 0..<positionsBottom.count {
+                let can = createCan()
+                can.position = [positionsBottom[i], firstLayerY, 0]
+                anchor.addChild(can)
+                cans.append(can)
             }
-            let topCube = createCube(size: cubeSize)
-            topCube.position = [0, thirdLayerY, 0] // Positioned top cube on top of the ground plane
-            anchor.addChild(topCube)
+
+            // 2 conserve în mijloc
+            for i in 0..<positionsMid.count {
+                let can = createCan()
+                can.position = [positionsMid[i], secondLayerY, 0]
+                anchor.addChild(can)
+                cans.append(can)
+            }
+
+            // 1 conservă în vârf
+            let topCan = createCan()
+            topCan.position = [positionTop, thirdLayerY, 0]
+            anchor.addChild(topCan)
+            cans.append(topCan)
         }
 
-        func createCube(size: Float) -> ModelEntity {
-            let cube = ModelEntity(
-                mesh: .generateBox(size: size),
-                materials: [SimpleMaterial(color: .systemMint, roughness: 1, isMetallic: true)]
-            )
-            cube.physicsBody = PhysicsBodyComponent(
-                massProperties: .init(mass: 1.0), // Increased mass to make cubes heavier
-                material: .default,
-                mode: .dynamic
-            )
-            cube.collision = CollisionComponent(
-                shapes: [.generateBox(size: [size, size, size])]
-            )
-            self.cubes.append(cube)
-            return cube
-        }
-
-        func createBall(radius: Float) -> ModelEntity {
-            let ball = ModelEntity(
-                mesh: .generateSphere(radius: radius),
-                materials: [SimpleMaterial(color: .orange, roughness: 0.3, isMetallic: true)]
-            )
-            ball.physicsBody = PhysicsBodyComponent(
-                massProperties: .init(mass: 0.1),
-                material: .default,
-                mode: .kinematic // Initially kinematic to stay in place
-            )
-            ball.collision = CollisionComponent(
-                shapes: [.generateSphere(radius: radius)]
-            )
+        // *** Modificat: Create Ball prin clonare ***
+        func createBall() -> ModelEntity {
+            // Clonează template-ul mingii în loc să încarci din nou modelul
+            let ball = ballTemplate.clone(recursive: true)
+            ball.name = "ball" // Nume pentru identificare
             return ball
+        }
+
+        func createBallEntity(at position: SIMD3<Float>) -> AnchorEntity {
+            let ball = createBall()
+            ball.position = position
+
+            let ballAnchor = AnchorEntity(world: position)
+            ballAnchor.addChild(ball)
+            return ballAnchor
         }
 
         func createAndPlaceBall(in arView: ARView) {
@@ -418,8 +441,7 @@ struct ARViewContainer: UIViewRepresentable {
             if let existingBall = arView.scene.findEntity(named: "ball") {
                 existingBall.removeFromParent()
             }
-            let ball = createBall(radius: 0.05)
-            ball.name = "ball"
+            let ball = createBall()
             var ballPosition: SIMD3<Float>
             if let initialPosition = self.initialBallPosition {
                 ballPosition = initialPosition
@@ -427,10 +449,10 @@ struct ARViewContainer: UIViewRepresentable {
                 let forward = normalize(-cameraTransform.columns.2.xyz)
                 let cameraPosition = cameraTransform.position
                 ballPosition = cameraPosition + forward * 0.1
-                ballPosition.y += 0.005 // Place the ball slightly higher by 0.5 cm
+                ballPosition.y += 0.005
                 self.initialBallPosition = ballPosition
             } else {
-                ballPosition = [0, 0, 0] // default position
+                ballPosition = [0, 0, 0]
             }
             ball.position = ballPosition
 
@@ -441,7 +463,7 @@ struct ARViewContainer: UIViewRepresentable {
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
             guard let arView = gesture.view as? ARView else { return }
-            if gameSettings.hasPlacedCubes || !gameSettings.isGameStarted {
+            if gameSettings.hasPlacedCans || !gameSettings.isGameStarted {
                 gameSettings.showTowerAlreadyPlacedMessage = true
                 return
             }
@@ -452,7 +474,6 @@ struct ARViewContainer: UIViewRepresentable {
                 let cameraPosition = arView.cameraTransform.translation
                 let distance = simd_distance(cameraPosition, position)
                 if distance < 0.5 {
-                    // Move the anchor further away
                     let direction = normalize(position - cameraPosition)
                     position = cameraPosition + direction * 0.5
                 }
@@ -461,7 +482,6 @@ struct ARViewContainer: UIViewRepresentable {
                 arView.scene.addAnchor(anchor)
                 setupScene(in: arView)
 
-                // Haptic feedback
                 let generator = UIImpactFeedbackGenerator(style: .medium)
                 generator.impactOccurred()
             }
@@ -472,34 +492,28 @@ struct ARViewContainer: UIViewRepresentable {
             guard let ball = arView.scene.findEntity(named: "ball") as? ModelEntity else { return }
 
             if gesture.state == .ended {
-                // Get the camera's forward direction
                 if let cameraTransform = arView.session.currentFrame?.camera.transform {
                     let forward = normalize(-cameraTransform.columns.2.xyz)
-                    let forceMagnitude: Float = 2.5 // Adjusted force to slow down the ball
+                    // Mingea mai lentă
+                    let forceMagnitude: Float = 0.001
                     let force = forward * forceMagnitude
-
                     ball.physicsBody?.mode = .dynamic
-                    ball.physicsBody?.massProperties.mass = 0.5
+                    ball.physicsBody?.massProperties = .init(mass: 0.001)
                     ball.applyLinearImpulse(force, relativeTo: nil)
 
-                    // Haptic feedback
                     let generator = UIImpactFeedbackGenerator(style: .light)
                     generator.impactOccurred()
 
-                    // Decrease ballsRemaining
                     DispatchQueue.main.async {
                         self.gameSettings.ballsRemaining -= 1
                         if self.gameSettings.ballsRemaining > 0 {
-                            // Create new ball after delay
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                                 self.createAndPlaceBall(in: arView)
                             }
                         } else {
-                            // Delay the game over result to allow for final cube falls
                             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                                 self.gameSettings.isGameOver = true
-                                self.gameSettings.gameResult = self.gameSettings.score == 6
- ? "You won!" : "You lost!"
+                                self.gameSettings.gameResult = self.gameSettings.score == 6 ? "You won!" : "You lost!"
                             }
                         }
                     }
