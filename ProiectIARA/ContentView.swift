@@ -1,5 +1,9 @@
-// ContentView.swift
-
+//
+//  ContentView.swift
+//  ProiectIARA
+//
+//  Created by Emanuel Prelipcean on 21.10.2024.
+//
 import SwiftUI
 import RealityKit
 import ARKit
@@ -75,6 +79,7 @@ struct ContentView: View {
                         VStack(spacing: 20) {
                             HStack {
                                 Image(systemName: "hand.tap")
+                                    .symbolEffect(.bounce.down.byLayer, options: .repeat(.periodic(delay: 0.5)))
                                     .font(.title)
                                     .fontWeight(.bold)
                                     .foregroundColor(.white)
@@ -85,6 +90,8 @@ struct ContentView: View {
                             }
                             HStack {
                                 Image(systemName: "hand.draw")
+                                    .symbolEffect(.pulse)
+                                    .symbolRenderingMode(.hierarchical)
                                     .font(.title)
                                     .fontWeight(.bold)
                                     .foregroundColor(.white)
@@ -183,6 +190,7 @@ struct ContentView: View {
                                     .fontWeight(.bold)
                                     .foregroundColor(.white)
                                 Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90")
+                                    .symbolEffect(.rotate.clockwise.byLayer, options: .repeat(.periodic(delay: 0.5)))
                                     .font(.title)
                                     .fontWeight(.bold)
                                     .foregroundColor(.white)
