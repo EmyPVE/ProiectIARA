@@ -1,5 +1,5 @@
 //
-//  ProiectIARAApp.swift
+//  AppDelegate.swift
 //  ProiectIARA
 //
 //  Created by Emanuel Prelipcean on 21.10.2024.
